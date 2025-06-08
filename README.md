@@ -330,7 +330,7 @@ pytz>=2021.1
 ### 🎯 2. Fitur AI Lanjutan
 - **Prediksi Jangka Pendek:** Menggunakan LSTM untuk pola waktu
 - **Analisis Gambar:** CNN untuk deteksi kemacetan dari kamera
-- **Pembelajaran Online:** Pembaruan model secara real-time
+- **Pelatihan Model:** Pembaruan dan pelatihan model secara real-time
 - **Federated Learning:** Privasi data pengguna
 
 ### 🌐 3. Integrasi Smart City
