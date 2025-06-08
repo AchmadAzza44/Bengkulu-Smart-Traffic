@@ -326,6 +326,7 @@ pytz>=2021.1
 - Notifikasi push untuk peringatan kemacetan
 - Integrasi GPS untuk pelacakan lokasi
 - Mode offline dengan cache data
+- Kolaborasi antar sumber daya API untuk *Data Resource* Yang lebih kaya
 
 ### 🎯 2. Fitur AI Lanjutan
 - **Prediksi Jangka Pendek:** Menggunakan LSTM untuk pola waktu
