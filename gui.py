@@ -460,9 +460,12 @@ class TrafficMonitoringGUI(QMainWindow):
         
         self.get_routes_btn.setEnabled(False)
         
-        if self.route_thread is not None and self.route_thread.isRunning():
-            self.route_thread.terminate()
-            self.route_thread.wait()
+        # Pastikan thread sebelumnya sudah selesai
+        if self.route_thread is not None:
+            if self.route_thread.isRunning():
+                self.route_thread.terminate()
+                self.route_thread.wait()
+            self.route_thread = None
             
         try:
             self.route_thread = RouteCalculationThread(self.route_engine, start_location, end_location, max_alternatives=3)
@@ -470,7 +473,7 @@ class TrafficMonitoringGUI(QMainWindow):
                 lambda routes: self.on_routes_calculated(routes, start_location, end_location, mode, progress))
             self.route_thread.error_occurred.connect(
                 lambda error: self.on_route_error(error, progress))
-            self.route_thread.finished.connect(self.route_thread.deleteLater)
+            self.route_thread.cleanup.connect(lambda: setattr(self, 'route_thread', None))  # Atur ke None saat selesai
             self.route_thread.start()
         except Exception as e:
             logging.error(f"Error creating route thread: {str(e)}")
@@ -507,7 +510,7 @@ class TrafficMonitoringGUI(QMainWindow):
                 route_html += "</ul>"
         self.routes_text.setHtml(route_html)
         
-        # Tampilkan tombol "Cari Rute Lagi" dan "Selesai" setelah hasil ditampilkan
+        # Tampilkan tombol "Cari Rute Lagi" dan "Selesai"
         self.cari_lagi_btn.show()
         self.selesai_btn.show()
         
