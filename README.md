@@ -40,15 +40,15 @@ Program ini merupakan aplikasi monitoring lalu lintas berbasis AI yang digunakan
 
 ### 📍 Data Generasi (Sintetis):
 Menggunakan distribusi statistik (normal, uniform) untuk meniru pola lalu lintas nyata
-- **Sumber : ** Data dibuat secara sintetis menggunakan kelas 'TrafficDataGenerator'
+- Sumber :  Data dibuat secara sintetis menggunakan kelas 'TrafficDataGenerator'
 
 ### 📍 Data Geospasial:
 Data jaringan jalan (graph) Kota Bengkulu.
-- **Sumber : ** Diambil dari OpenStreetMap (OSM) menggunakan library 'OSMnx'
+- Sumber :  Diambil dari OpenStreetMap (OSM) menggunakan library 'OSMnx'
 
 ### 📍 Data Cuaca (API Eksternal):
 Mengambil Data cuaca secara real-time
-- **Sumber : ** 'OpenWeatherMap API'
+- Sumber :  'OpenWeatherMap API'
 
 ---
 
