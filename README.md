@@ -1,4 +1,4 @@
-# Bengkulu-Smart-Traffic
+# 🚦Bengkulu-Smart-Traffic
 
 
 Program ini merupakan aplikasi monitoring lalu lintas berbasis AI yang digunakan untuk memprediksi kemacetan lalu lintas di kota Bengkulu lalu memberikan rute alternatif menggunakan peta interaktif 
