@@ -6,6 +6,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 class RouteCalculationThread(QThread):
     routes_calculated = pyqtSignal(list)
     error_occurred = pyqtSignal(str)
+    cleanup = pyqtSignal()  # Sinyal baru untuk pembersihan
     
     def __init__(self, route_engine, start_location, end_location, max_alternatives=3, min_alternatives=1):
         super().__init__()
@@ -31,3 +32,5 @@ class RouteCalculationThread(QThread):
         except Exception as e:
             logging.error(f"Error dalam perhitungan rute: {str(e)}", exc_info=True)
             self.error_occurred.emit(str(e))
+        finally:
+            self.cleanup.emit()  # Emit sinyal cleanup untuk menandakan thread selesai
