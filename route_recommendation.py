@@ -376,9 +376,9 @@ class RouteRecommendationEngine:
         congestion = self.analyze_congestion(path) if mode in ['car', 'motorcycle'] else "Low"
         return "Good" if congestion == "Low" else "Moderate" if congestion == "Moderate" else "Poor"
 
-    def create_route_map(self, route, filename):
+    def create_route_map(self, route, filename, idx=1):
         try:
-            logging.info(f"Creating route map for {route['start_location']} to {route['end_location']} via {route['mode']}")
+            logging.info(f"Creating route map for {route['start_location']} to {route['end_location']} via {route['mode']} with index {idx}")
             if not route.get('coordinates') or len(route.get('coordinates', [])) < 2:
                 logging.error("❌ Route coordinates are empty or invalid")
                 return None
@@ -386,8 +386,28 @@ class RouteRecommendationEngine:
             full_path = os.path.abspath(os.path.join(os.getcwd(), "maps", filename))
             os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
+            # Tentukan warna berdasarkan congestion_level
+            congestion_level = route['congestion_level']
+            if congestion_level == "Low":
+                line_color = '#4CAF50'  # Hijau untuk Lancar
+            elif congestion_level == "Moderate":
+                line_color = '#FFCA28'  # Kuning untuk Sedang
+            else:  # High
+                line_color = '#FF5722'  # Merah untuk Macet
+
+            # Tambahkan warna biru untuk rute alternatif (selain rute utama)
+            is_alternative = idx > 1
+            if is_alternative:
+                line_color = '#2196F3'  # Biru untuk alternatif
+
             m = folium.Map(location=route['coordinates'][0], zoom_start=13, tiles='OpenStreetMap')
-            folium.PolyLine(locations=route['coordinates'], color='blue', weight=5, opacity=0.8).add_to(m)
+            folium.PolyLine(
+                locations=route['coordinates'],
+                color=line_color,
+                weight=5,
+                opacity=0.8,
+                popup=f"Rute dari {route['start_location']} ke {route['end_location']} ({route['mode']})<br>Jarak: {route['total_distance']:.2f} km<br>Waktu: {route['estimated_time']:.2f} menit<br>Kemacetan: {congestion_level}"
+            ).add_to(m)
             folium.Marker(
                 location=route['coordinates'][0],
                 popup=f"Start: {route['start_location']} ({route['mode']})",
@@ -418,13 +438,92 @@ class OptimizedRouteRecommendationEngine(RouteRecommendationEngine):
         logging.info("🔍 Initializing OptimizedRouteRecommendationEngine...")
         super().__init__(bengkulu_locations, weather_api_key)
 
-    def get_alternative_routes(self, start, end, departure_time=None, max_alternatives=5, min_alternatives=3):
-        logging.info(f"🔍 Optimized route calculation for {start} to {end}...")
-        routes = []
-        for mode in ['walking', 'car', 'motorcycle']:
-            mode_routes = super().get_alternative_routes(start, end, departure_time, max_alternatives, min_alternatives, mode)
-            for route in mode_routes:
-                route['mode'] = mode
-            routes.extend(mode_routes)
-        routes.sort(key=lambda x: (x['total_distance'], x['estimated_time'], -1 if x['route_quality'] == "Good" else 0))
-        return routes[:max_alternatives]
+    def get_alternative_routes(self, start, end, departure_time=None, max_alternatives=5, min_alternatives=3, mode='car'):
+        logging.info(f"🔍 Optimized route calculation for {start} to {end} with mode {mode}...")
+        if start not in self.location_nodes or end not in self.location_nodes:
+            logging.error(f"❌ Lokasi start atau end tidak valid: {start} → {end}")
+            return []
+
+        # Select network and nodes based on mode
+        if mode == 'walking':
+            network = self.walking_network
+            start_node = self.walking_nodes[start]
+            end_node = self.walking_nodes[end]
+        else:  # car or motorcycle
+            network = self.road_network
+            start_node = self.location_nodes[start]
+            end_node = self.location_nodes[end]
+
+        alternative_routes = []
+        temp_graph = network.copy()
+
+        cache_key = f"{start}_{end}_{max_alternatives}_{mode}"
+        cache_file = f"cache/routes_{cache_key}.pkl"
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, 'rb') as f:
+                    cached_routes = pickle.load(f)
+                logging.info(f"✅ Memuat rute dari cache untuk {start} ke {end} mode {mode}")
+                return cached_routes
+            except:
+                logging.warning(f"⚠ Cache rusak, menghitung ulang rute")
+
+        try:
+            # Gunakan A* untuk rute utama
+            shortest_path = nx.astar_path(temp_graph, start_node, end_node, heuristic=self._heuristic, weight='weight')
+            paths = [(shortest_path, 0)]  # (path, penalty)
+
+            # Generate rute alternatif dengan penalti edge
+            for i in range(max_alternatives - 1):
+                new_path = self._generate_alternative_path(temp_graph, shortest_path, end_node, penalty_factor=1.2 + i * 0.2)
+                if new_path and tuple(new_path) not in [tuple(p) for p, _ in paths]:
+                    paths.append((new_path, 1.2 + i * 0.2))
+
+            for i, (path, _) in enumerate(paths[:max_alternatives], 1):
+                coordinates = []
+                for node in path:
+                    try:
+                        node_data = temp_graph.nodes[node]
+                        if 'y' in node_data and 'x' in node_data:
+                            coordinates.append((node_data['y'], node_data['x']))
+                        else:
+                            logging.warning(f"⚠ Node {node} in path missing coordinates, skipping...")
+                            continue
+                    except Exception as e:
+                        logging.warning(f"⚠ Error accessing coordinates for node {node}: {e}")
+                        continue
+                if len(coordinates) < 2:
+                    logging.error(f"❌ Route path for {start} to {end} via {mode} has insufficient valid coordinates")
+                    continue
+
+                total_distance = self.calculate_distance(path, mode)
+                estimated_time = self.estimate_time(path, departure_time, mode)
+                congestion_level = self.analyze_congestion(path) if mode in ['car', 'motorcycle'] else "Low"
+                route_quality = self.assess_route_quality(path, mode)
+
+                route = {
+                    'path': path,
+                    'coordinates': coordinates,
+                    'total_distance': total_distance,
+                    'estimated_time': estimated_time,
+                    'congestion_level': congestion_level,
+                    'route_quality': route_quality,
+                    'start_location': start,
+                    'end_location': end,
+                    'mode': mode,
+                    'route_index': i  # Menambahkan indeks rute
+                }
+                alternative_routes.append(route)
+
+            alternative_routes.sort(key=lambda x: (x['total_distance'], x['estimated_time'], -1 if x['route_quality'] == "Good" else 0))
+            alternative_routes = alternative_routes[:max_alternatives]
+
+            os.makedirs("cache", exist_ok=True)
+            with open(cache_file, 'wb') as f:
+                pickle.dump(alternative_routes, f)
+            logging.info(f"✅ Menyimpan rute ke cache untuk {start} ke {end} mode {mode}")
+
+            return alternative_routes
+        except Exception as e:
+            logging.error(f"❌ Error menghitung rute: {str(e)}")
+            return []
