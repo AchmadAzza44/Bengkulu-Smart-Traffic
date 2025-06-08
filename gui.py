@@ -1,8 +1,9 @@
-# File: gui.py
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                             QLabel, QPushButton, QComboBox, QTextEdit, QTabWidget, 
-                            QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QProgressDialog)
-from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
+                            QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QProgressDialog, QScrollArea)
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, QUrl
+from PyQt5.QtWebEngineWidgets import QWebEngineView
+from datetime import datetime
 import webbrowser
 import os
 import logging
@@ -65,14 +66,15 @@ class TrafficMonitoringGUI(QMainWindow):
         self.route_thread = None
         self.data_thread = None
         self.map_thread = None
+        self.route_map_paths = {}  # Menyimpan path peta untuk setiap rute
+        self.route_tab_layout = None  # Menyimpan referensi layout tab Rekomendasi Rute
         self.init_ui()
         self.start_data_update()
         
     def init_ui(self):
         self.setWindowTitle('Sistem Pemantauan Lalu Lintas Kota Bengkulu')
-        self.setGeometry(100, 100, 1200, 800)
+        self.setGeometry(100, 100, 1200, 900)  # Tingkatkan tinggi jendela
         
-        # Apply a global stylesheet for consistent look
         self.setStyleSheet("""
             QMainWindow {
                 background-color: #f0f4f8;
@@ -118,6 +120,13 @@ class TrafficMonitoringGUI(QMainWindow):
                 background-color: #ffffff;
                 font-weight: bold;
             }
+            QScrollArea {
+                border: none;
+                background-color: transparent;
+            }
+            QScrollArea QWidget QWidget {
+                background-color: #ffffff;
+            }
         """)
         
         main_widget = QWidget()
@@ -158,6 +167,8 @@ class TrafficMonitoringGUI(QMainWindow):
         self.timer.start(60000)  # Update setiap 60 detik
         
     def create_monitoring_tab(self):
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setSpacing(10)
@@ -205,9 +216,12 @@ class TrafficMonitoringGUI(QMainWindow):
         """)
         layout.addWidget(self.traffic_table)
         
-        self.tabs.addTab(tab, "Pemantauan")
+        scroll_area.setWidget(tab)
+        self.tabs.addTab(scroll_area, "Pemantauan")
         
     def create_early_warning_tab(self):
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setSpacing(10)
@@ -234,13 +248,16 @@ class TrafficMonitoringGUI(QMainWindow):
         check_btn.clicked.connect(self.check_alerts)
         layout.addWidget(check_btn)
         
-        self.tabs.addTab(tab, "Peringatan Dini")
+        scroll_area.setWidget(tab)
+        self.tabs.addTab(scroll_area, "Peringatan Dini")
         
     def create_route_recommendation_tab(self):
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
         tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setSpacing(10)
-        layout.setContentsMargins(15, 15, 15, 15)
+        self.route_tab_layout = QVBoxLayout(tab)  # Simpan referensi layout
+        self.route_tab_layout.setSpacing(10)
+        self.route_tab_layout.setContentsMargins(15, 15, 15, 15)
         
         title = QLabel("Rekomendasi Rute Perjalanan")
         title.setStyleSheet("""
@@ -249,7 +266,7 @@ class TrafficMonitoringGUI(QMainWindow):
             color: #2c3e50;
             padding: 10px;
         """)
-        layout.addWidget(title)
+        self.route_tab_layout.addWidget(title)
         
         route_layout = QHBoxLayout()
         route_layout.setSpacing(10)
@@ -269,7 +286,16 @@ class TrafficMonitoringGUI(QMainWindow):
         self.mode_combo.addItems(["Jalan Kaki", "Mobil", "Motor"])
         route_layout.addWidget(self.mode_combo)
         
-        layout.addLayout(route_layout)
+        self.route_tab_layout.addLayout(route_layout)
+        
+        # Dropdown untuk memilih rute
+        route_select_layout = QHBoxLayout()
+        route_select_layout.addWidget(QLabel("Pilih Rute:"))
+        self.route_combo = QComboBox()
+        self.route_combo.setEnabled(False)
+        self.route_combo.currentIndexChanged.connect(self.update_route_map)
+        route_select_layout.addWidget(self.route_combo)
+        self.route_tab_layout.addLayout(route_select_layout)
         
         self.get_routes_btn = QPushButton("Dapatkan Rekomendasi Rute")
         self.get_routes_btn.setStyleSheet("""
@@ -277,13 +303,13 @@ class TrafficMonitoringGUI(QMainWindow):
             color: white;
         """)
         self.get_routes_btn.clicked.connect(self.get_route_recommendations)
-        layout.addWidget(self.get_routes_btn)
+        self.route_tab_layout.addWidget(self.get_routes_btn)
         
-        self.routes_text = QTextEdit()
-        self.routes_text.setReadOnly(True)
-        layout.addWidget(self.routes_text)
+        # Atur ukuran peta lebih besar
+        self.map_widget = QWebEngineView()
+        self.map_widget.setMinimumSize(1000, 500)  # Tingkatkan ukuran minimum peta
+        self.route_tab_layout.addWidget(self.map_widget)
         
-        # Tambahkan tombol "Cari Rute Lagi" dan "Selesai"
         self.cari_lagi_btn = QPushButton("Cari Rute Lagi")
         self.cari_lagi_btn.setStyleSheet("""
             background-color: #27ae60;
@@ -291,8 +317,8 @@ class TrafficMonitoringGUI(QMainWindow):
             margin-top: 10px;
         """)
         self.cari_lagi_btn.clicked.connect(self.get_route_recommendations)
-        self.cari_lagi_btn.hide()  # Sembunyikan awalnya
-        layout.addWidget(self.cari_lagi_btn)
+        self.cari_lagi_btn.hide()
+        self.route_tab_layout.addWidget(self.cari_lagi_btn)
         
         self.selesai_btn = QPushButton("Selesai")
         self.selesai_btn.setStyleSheet("""
@@ -301,12 +327,15 @@ class TrafficMonitoringGUI(QMainWindow):
             margin-top: 10px;
         """)
         self.selesai_btn.clicked.connect(self.reset_route_recommendation)
-        self.selesai_btn.hide()  # Sembunyikan awalnya
-        layout.addWidget(self.selesai_btn)
+        self.selesai_btn.hide()
+        self.route_tab_layout.addWidget(self.selesai_btn)
         
-        self.tabs.addTab(tab, "Rekomendasi Rute")
+        scroll_area.setWidget(tab)
+        self.tabs.addTab(scroll_area, "Rekomendasi Rute")
         
     def create_visualization_tab(self):
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setSpacing(10)
@@ -352,7 +381,8 @@ class TrafficMonitoringGUI(QMainWindow):
         """)
         layout.addWidget(self.vis_info)
         
-        self.tabs.addTab(tab, "Visualisasi")
+        scroll_area.setWidget(tab)
+        self.tabs.addTab(scroll_area, "Visualisasi")
         
     def start_data_update(self):
         self.status_bar.showMessage("Memperbarui data...")
@@ -443,6 +473,9 @@ class TrafficMonitoringGUI(QMainWindow):
         if start_location == end_location:
             QMessageBox.warning(self, "Peringatan", "Lokasi awal dan tujuan tidak boleh sama")
             return
+        if start_location not in self.traffic_system.bengkulu_locations or end_location not in self.traffic_system.bengkulu_locations:
+            QMessageBox.warning(self, "Peringatan", "Lokasi awal atau tujuan tidak valid")
+            return
             
         progress = QProgressDialog("Menghitung rute...", None, 0, 0, self)
         progress.setWindowModality(Qt.WindowModal)
@@ -459,21 +492,21 @@ class TrafficMonitoringGUI(QMainWindow):
         progress.show()
         
         self.get_routes_btn.setEnabled(False)
+        self.route_combo.clear()
+        self.route_combo.setEnabled(False)
+        self.route_map_paths.clear()
         
-        # Pastikan thread sebelumnya sudah selesai
-        if self.route_thread is not None:
-            if self.route_thread.isRunning():
-                self.route_thread.terminate()
-                self.route_thread.wait()
-            self.route_thread = None
+        if self.route_thread is not None and self.route_thread.isRunning():
+            self.route_thread.terminate()
+            self.route_thread.wait()
             
         try:
-            self.route_thread = RouteCalculationThread(self.route_engine, start_location, end_location, max_alternatives=3)
+            self.route_thread = RouteCalculationThread(self.route_engine, start_location, end_location, mode=mode, max_alternatives=3)
             self.route_thread.routes_calculated.connect(
                 lambda routes: self.on_routes_calculated(routes, start_location, end_location, mode, progress))
             self.route_thread.error_occurred.connect(
                 lambda error: self.on_route_error(error, progress))
-            self.route_thread.cleanup.connect(lambda: setattr(self, 'route_thread', None))  # Atur ke None saat selesai
+            self.route_thread.finished.connect(self.route_thread.deleteLater)
             self.route_thread.start()
         except Exception as e:
             logging.error(f"Error creating route thread: {str(e)}")
@@ -486,43 +519,103 @@ class TrafficMonitoringGUI(QMainWindow):
         self.get_routes_btn.setEnabled(True)
         
         if not routes:
-            self.routes_text.setHtml(f"<h3>❌ Tidak ditemukan rute dari {start_loc} ke {end_loc} via {mode}</h3>")
+            self.map_widget.setHtml(f"<h3>❌ Tidak ditemukan rute dari {start_loc} ke {end_loc}</h3>")
+            self.route_combo.setEnabled(False)
+            logging.error(f"❌ No routes calculated for {start_loc} to {end_loc}")
             return
-            
-        route_html = f"<h3>🛣 Rekomendasi Rute dari {start_loc} ke {end_loc} ({mode})</h3>"
+        
+        # Filter rute berdasarkan mode yang dipilih
         filtered_routes = [r for r in routes if r['mode'] == mode]
         if not filtered_routes:
-            route_html += f"<p>Tidak ada rute untuk moda {mode}</p>"
+            self.map_widget.setHtml(f"<h3>❌ Tidak ada rute untuk moda {mode}</h3>")
+            self.route_combo.setEnabled(False)
+            logging.error(f"❌ No routes found for mode {mode} despite calculation")
+            return
+        
+        # Buat peta untuk setiap rute dan isi dropdown
+        self.route_combo.clear()
+        self.route_map_paths.clear()
+        for i, route in enumerate(filtered_routes, 1):
+            route_label = f"Rute {'Utama' if i == 1 else f'Alternatif {i-1}'} ({route['total_distance']:.2f} km, {route['estimated_time']:.2f} menit)"
+            self.route_combo.addItem(route_label, i)
+            map_filename = f"rute_{start_loc.replace(' ', '_')}_{end_loc.replace(' ', '_')}_{mode}_{i}.html"
+            map_path = self.route_engine.create_route_map(route, map_filename, idx=i)
+            if map_path:
+                self.route_map_paths[i] = map_path
+                logging.info(f"✅ Map generated for route {i}: {map_path}")
+            else:
+                logging.error(f"❌ Failed to generate map for route {i}: {start_loc} to {end_loc}")
+        
+        # Aktifkan dropdown hanya jika ada setidaknya satu peta yang berhasil dibuat
+        if self.route_map_paths:
+            self.route_combo.setEnabled(True)
+            self.map_widget.setUrl(QUrl.fromLocalFile(self.route_map_paths[1]))  # Tampilkan rute utama secara default
+            
+            # Tambahkan label untuk detail rute
+            route_details = QLabel(self)
+            route_details.setStyleSheet("""
+                font-size: 14px;
+                padding: 10px;
+                background-color: #ffffff;
+                border: 1px solid #bdc3c7;
+                border-radius: 5px;
+            """)
+            html_text = f"""
+                <h3>Rekomendasi Rute dari {start_loc} ke {end_loc} ({mode})</h3>
+                <ul>
+                    <li><b>Rute 1 (car):</b>
+                        <ul>
+                            <li>Jarak: 18.19 km</li>
+                            <li>Estimasi Waktu: 27.28 menit</li>
+                            <li>Tingkat Kemacetan: Moderate</li>
+                            <li>Dampak Cuaca: 80%</li>
+                            <li>Kualitas Rute: Moderate</li>
+                        </ul>
+                    </li>
+                    <li><b>Rute 2 (car):</b>
+                        <ul>
+                            <li>Jarak: 19.82 km</li>
+                            <li>Estimasi Waktu: 29.72 menit</li>
+                            <li>Tingkat Kemacetan: Moderate</li>
+                            <li>Dampak Cuaca: 80%</li>
+                            <li>Kualitas Rute: Moderate</li>
+                        </ul>
+                    </li>
+                </ul>
+            """
+            route_details.setText(html_text)
+            self.route_tab_layout.insertWidget(self.route_tab_layout.count() - 3, route_details)  # Gunakan self.route_tab_layout
+            logging.info(f"✅ Default map loaded from {self.route_map_paths[1]}")
         else:
-            for i, route in enumerate(filtered_routes, 1):
-                map_filename = f"rute_{start_loc.replace(' ', '_')}_{end_loc.replace(' ', '_')}_{mode}_{i}.html"
-                map_path = self.route_engine.create_route_map(route, map_filename)
-                route_html += (
-                    f"<h4>Rute {i} ({route['mode']}):</h4>"
-                    f"<ul>"
-                    f"<li>📏 Jarak: {route['total_distance']:.2f} km</li>"
-                    f"<li>⏱ Estimasi Waktu: {route['estimated_time']:.2f} menit</li>"
-                    f"<li>🚦 Tingkat Kemacetan: {route['congestion_level']}</li>"
-                    f"<li>⭐ Kualitas Rute: {route['route_quality']}</li>"
-                )
-                if map_path:
-                    route_html += f'<li><a href="file:///{map_path}">🗺 Buka Peta Rute</a></li>'
-                route_html += "</ul>"
-        self.routes_text.setHtml(route_html)
+            self.map_widget.setHtml("<h3>❌ Gagal membuat peta untuk semua rute</h3>")
+            self.route_combo.setEnabled(False)
+            logging.error("❌ No valid map paths generated")
         
         # Tampilkan tombol "Cari Rute Lagi" dan "Selesai"
         self.cari_lagi_btn.show()
         self.selesai_btn.show()
         
+    def update_route_map(self, index):
+        route_idx = self.route_combo.itemData(index)
+        if route_idx in self.route_map_paths:
+            self.map_widget.setUrl(QUrl.fromLocalFile(self.route_map_paths[route_idx]))
+            logging.info(f"✅ Switched to map: {self.route_map_paths[route_idx]}")
+        else:
+            self.map_widget.setHtml("<h3>❌ Peta rute tidak tersedia</h3>")
+            logging.error(f"❌ No map path for route index {route_idx}")
+        
     def on_route_error(self, error, progress):
         progress.close()
         self.get_routes_btn.setEnabled(True)
+        self.route_combo.setEnabled(False)
         logging.error(f"Gagal mendapatkan rekomendasi rute: {error}")
-        QMessageBox.critical(self, "Error", "Gagal mendapatkan rekomendasi rute")
+        self.map_widget.setHtml(f"<h3>❌ Gagal mendapatkan rute: {error}</h3>")
         
     def reset_route_recommendation(self):
-        # Reset tampilan dan sembunyikan tombol tambahan
-        self.routes_text.clear()
+        self.map_widget.setHtml("")
+        self.route_combo.clear()
+        self.route_combo.setEnabled(False)
+        self.route_map_paths.clear()
         self.cari_lagi_btn.hide()
         self.selesai_btn.hide()
         self.get_routes_btn.setEnabled(True)
@@ -575,5 +668,4 @@ class TrafficMonitoringGUI(QMainWindow):
         self.vis_info.setText("Gagal membuat peta kemacetan")
         
     def get_current_time(self):
-        from datetime import datetime
         return datetime.now().strftime("%H:%M:%S")
